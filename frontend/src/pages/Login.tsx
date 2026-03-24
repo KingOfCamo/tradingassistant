@@ -5,7 +5,7 @@ import { TrendingUp, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth.ts';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -21,7 +21,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(username, password);
       navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -53,14 +53,14 @@ export default function Login() {
 
           <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
             <div>
-              <label className="block text-text-secondary text-sm mb-1.5">Email</label>
+              <label className="block text-text-secondary text-sm mb-1.5">Username</label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
                 className="w-full bg-bg-base border border-border rounded-lg px-3 py-2.5 text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-accent-green/50 focus:ring-1 focus:ring-accent-green/20 transition"
-                placeholder="you@example.com"
+                placeholder="admin"
               />
             </div>
 
