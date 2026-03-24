@@ -1,11 +1,12 @@
-"""Auth endpoints: login, refresh, logout, change-password."""
+"""Auth endpoints: login, refresh, logout, change-password, setup."""
 
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from passlib.hash import bcrypt
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.auth.dependencies import get_current_user
@@ -214,3 +215,66 @@ async def change_password(
 
     await log_auth_event("password_change", user_id=str(user.id))
     return {"message": "Password changed. Please log in again."}
+
+
+class SetupRequest(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/setup")
+@limiter.limit("3/hour")
+async def setup(
+    body: SetupRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    One-time setup: create the admin user.
+    Only works when zero users exist in the database.
+    Returns 403 if any user already exists.
+    """
+    result = await db.execute(select(func.count()).select_from(User))
+    count = result.scalar()
+
+    if count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Setup already complete. Use /api/auth/login.",
+        )
+
+    # Validate password
+    pwd = body.password
+    errors = []
+    if len(pwd) < 12:
+        errors.append("at least 12 characters")
+    if not any(c.isupper() for c in pwd):
+        errors.append("one uppercase letter")
+    if not any(c.islower() for c in pwd):
+        errors.append("one lowercase letter")
+    if not any(c.isdigit() for c in pwd):
+        errors.append("one number")
+    if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in pwd):
+        errors.append("one symbol")
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must contain: {', '.join(errors)}",
+        )
+
+    hashed = bcrypt.using(rounds=12).hash(pwd)
+    user = User(
+        id=uuid.uuid4(),
+        username=body.username,
+        hashed_password=hashed,
+    )
+    db.add(user)
+    await db.commit()
+
+    await log_auth_event(
+        "setup_complete",
+        ip_address=request.client.host if request.client else None,
+        user_id=str(user.id),
+    )
+
+    return {"message": f"User '{body.username}' created. You can now log in."}

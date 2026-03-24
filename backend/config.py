@@ -1,5 +1,16 @@
+import os
+
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+
+def _fix_database_url(url: str) -> str:
+    """Convert Railway's DATABASE_URL to asyncpg format."""
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
 
 
 class Settings(BaseSettings):
@@ -10,9 +21,13 @@ class Settings(BaseSettings):
     # Market Data
     finnhub_api_key: str = ""
 
-    # Database
+    # Database — Railway sets DATABASE_URL and REDIS_URL automatically
     database_url: str = "postgresql+asyncpg://trader:password@localhost:5432/tradingassistant"
     redis_url: str = "redis://localhost:6379"
+
+    # Railway
+    port: int = 8000  # Railway sets PORT env var
+    railway_public_domain: str = ""  # e.g. your-app.up.railway.app
 
     # Notifications
     sendgrid_api_key: Optional[str] = None
@@ -70,5 +85,18 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
+    def get_async_database_url(self) -> str:
+        return _fix_database_url(self.database_url)
+
+    def get_sync_database_url(self) -> str:
+        url = self.database_url
+        # Strip async driver for sync operations (alembic, etc.)
+        for prefix in ("postgres://", "postgresql://", "postgresql+asyncpg://"):
+            if url.startswith(prefix):
+                return "postgresql://" + url[len(prefix):]
+        return url
+
 
 settings = Settings()
+# Fix DB URL in-place for modules that read it directly
+settings.database_url = _fix_database_url(settings.database_url)
