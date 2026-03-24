@@ -2,8 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 
 interface User {
   id: string;
-  email: string;
-  name: string;
+  username: string;
 }
 
 interface AuthState {
@@ -33,19 +32,19 @@ export function useAuth() {
     });
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: 'Login failed' }));
-      throw new Error(err.message ?? 'Login failed');
+      const err = await res.json().catch(() => ({ detail: 'Login failed' }));
+      throw new Error(err.detail ?? 'Login failed');
     }
     const data = await res.json();
-    setToken(data.accessToken, data.user);
+    setToken(data.access_token, { id: '', username });
     return data;
   }, [setToken]);
 
@@ -53,6 +52,7 @@ export function useAuth() {
     try {
       await fetch('/api/auth/logout', {
         method: 'POST',
+        headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {},
         credentials: 'include',
       });
     } catch {
@@ -63,16 +63,25 @@ export function useAuth() {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (!res.ok) {
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (!refreshToken) {
         setToken(null, null);
         return;
       }
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) {
+        setToken(null, null);
+        localStorage.removeItem('refresh_token');
+        return;
+      }
       const data = await res.json();
-      setToken(data.accessToken, data.user);
+      setToken(data.access_token, { id: '', username: 'user' });
+      localStorage.setItem('refresh_token', data.refresh_token);
     } catch {
       setToken(null, null);
     }
@@ -84,7 +93,14 @@ export function useAuth() {
 
   return {
     ...state,
-    login,
+    login: async (username: string, password: string) => {
+      const data = await login(username, password);
+      // Store refresh token for session persistence
+      if (data.refresh_token) {
+        localStorage.setItem('refresh_token', data.refresh_token);
+      }
+      return data;
+    },
     logout,
     refresh,
   };
