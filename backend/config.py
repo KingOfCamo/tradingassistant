@@ -1,0 +1,74 @@
+from pydantic_settings import BaseSettings
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    # AI
+    anthropic_api_key: str = ""
+    claude_model: str = "claude-sonnet-4-20250514"
+
+    # Market Data
+    finnhub_api_key: str = ""
+
+    # Database
+    database_url: str = "postgresql+asyncpg://trader:password@localhost:5432/tradingassistant"
+    redis_url: str = "redis://localhost:6379"
+
+    # Notifications
+    sendgrid_api_key: Optional[str] = None
+    alert_email: Optional[str] = None
+
+    # User Profile
+    user_name: str = "Trader"
+    default_currency: str = "AUD"
+    home_market: str = "ASX"
+    portfolio_value_aud: float = 5000.0
+    risk_per_trade_pct: float = 1.5
+    max_position_size_pct: float = 10.0
+
+    # Core ETF Holdings
+    core_holdings: str = "VAS.AX:0:0.00,IHVV.AX:0:0.00"
+
+    # Portfolio Risk Limits
+    max_sector_concentration_pct: float = 35.0
+    max_portfolio_beta: float = 1.5
+    correlation_warning_threshold: float = 0.75
+
+    # Broker: CMC Markets
+    cmc_au_threshold: float = 1000.00
+    cmc_au_flat_fee: float = 9.90
+    cmc_fx_spread_pct: float = 0.0065
+
+    # Market Regime
+    regime_vix_elevated: float = 20.0
+    regime_vix_extreme: float = 30.0
+    regime_adx_trending: float = 25.0
+    regime_breadth_bullish: float = 0.60
+
+    # Confluence Engine
+    confluence_min_strategies: int = 2
+    confluence_priority_threshold: int = 3
+
+    # Scanning
+    scan_universe: str = "ASX200,SP500"
+    scan_interval_minutes: int = 15
+    ai_analysis_daily_limit: int = 50
+
+    # Idea Lifecycle
+    idea_max_age_days: int = 5
+    idea_entry_miss_pct: float = 3.0
+
+    # Cloudflare
+    cloudflare_tunnel_token: str = ""
+    cloudflare_domain: str = ""
+
+    # App
+    api_port: int = 8000
+    frontend_port: int = 3000
+    secret_key: str = "replace_this_with_a_long_random_string_at_least_32_chars"
+    log_level: str = "INFO"
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+
+settings = Settings()
