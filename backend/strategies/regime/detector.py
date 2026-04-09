@@ -235,24 +235,14 @@ async def detect_regime(market: str) -> RegimeSnapshot:
     else:
         index_symbol = "^GSPC"
 
-    # ADX requires a workaround since we need the raw bars
+    # Get index bars from DataRouter for ADX calculation
     adx_value = None
     try:
-        import yfinance as yf
-        ticker = yf.Ticker(index_symbol)
-        df = ticker.history(period="3mo")
-        if not df.empty:
-            from backend.data.normalizer import OHLCV
-            bars = [
-                OHLCV(
-                    symbol=index_symbol, market=market,
-                    timestamp=idx.to_pydatetime(),
-                    open=float(row["Open"]), high=float(row["High"]),
-                    low=float(row["Low"]), close=float(row["Close"]),
-                    volume=int(row["Volume"]),
-                )
-                for idx, row in df.iterrows()
-            ]
+        # Twelve Data symbols: XJO for ASX200, SPX for S&P 500
+        router_symbol = "XJO" if market == "ASX" else "SPX"
+        from backend.data.feeds.data_router import get_data_router
+        bars = await get_data_router().get_ohlcv(router_symbol, market, "1day", 90)
+        if bars:
             adx_value = compute_adx(bars)
     except Exception as e:
         logger.error("Failed to compute ADX for %s: %s", market, e)
