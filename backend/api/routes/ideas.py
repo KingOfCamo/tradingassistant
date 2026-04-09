@@ -83,12 +83,14 @@ async def idea_action(
 async def refresh_ideas(
     user: dict = Depends(get_current_user),
     market: str = Query(default="ASX"),
+    force: bool = Query(default=False),
 ) -> dict:
     """Trigger a fresh scan synchronously. For debugging and manual refresh."""
     throttle_key = f"ideas:refresh:throttle:{market}"
-    throttled = await cache_get(throttle_key)
-    if throttled:
-        return {"status": "throttled", "message": "Last refresh was less than 1 hour ago."}
+    if not force:
+        throttled = await cache_get(throttle_key)
+        if throttled:
+            return {"status": "throttled", "message": "Last refresh was less than 1 hour ago."}
     await cache_set(throttle_key, {"ts": datetime.utcnow().isoformat()}, 3600)
 
     logger.info("Manual /ideas/refresh triggered for %s by user %s", market, user.get("sub"))
