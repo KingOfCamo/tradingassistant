@@ -23,6 +23,7 @@ from backend.api.routes.analysis import router as analysis_router
 from backend.api.routes.screener import router as screener_router
 from backend.api.routes.performance import router as performance_router
 from backend.api.routes.style import router as style_router
+from backend.api.routes.data import router as data_router_api
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dis
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown events."""
-    # Create database tables on startup (Railway can't run alembic manually)
+    # 1. DB tables (Railway can't run alembic manually)
     try:
         from backend.db.database import create_all_tables
         await create_all_tables()
@@ -41,9 +42,59 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to create database tables: %s", e)
 
+    # 2. Warn on missing feed keys
+    missing = settings.warn_if_feeds_missing()
+    if missing:
+        logger.error(
+            "Missing required feed keys: %s — data layer will degrade",
+            ", ".join(missing),
+        )
+
+    # 3. Initialise data layer
+    try:
+        from backend.data.feeds.data_router import init_data_router
+        router_instance = init_data_router(
+            twelve_api_key=settings.twelve_data_api_key,
+            fred_api_key=settings.fred_api_key,
+            finnhub_api_key=settings.finnhub_api_key,
+        )
+        logger.info("DataRouter ready")
+    except Exception as e:
+        logger.error("DataRouter init failed: %s", e)
+        router_instance = None
+
+    # 4. Start scheduler
+    try:
+        from backend.scheduler.jobs import start_scheduler
+        n = start_scheduler()
+        logger.info("Scheduler started — %d jobs registered", n)
+    except Exception as e:
+        logger.error("Scheduler start failed: %s", e)
+
+    # 5. Warm cache (don't block startup on failure)
+    if router_instance is not None:
+        try:
+            import asyncio as _asyncio
+            from backend.data.initializer import initialise_data
+
+            async def _bg_init():
+                try:
+                    await initialise_data(router_instance)
+                except Exception as e:
+                    logger.warning("Background data init failed: %s", e)
+
+            _asyncio.create_task(_bg_init())
+        except Exception as e:
+            logger.warning("Could not schedule background init: %s", e)
+
     yield
 
     # Shutdown
+    try:
+        from backend.scheduler.jobs import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        pass
     try:
         from backend.db.redis import close_redis
         await close_redis()
@@ -94,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(screener_router, prefix="/api", tags=["screener"])
     app.include_router(performance_router, prefix="/api", tags=["performance"])
     app.include_router(style_router, prefix="/api", tags=["style"])
+    app.include_router(data_router_api, prefix="/api", tags=["data"])
 
     # Serve frontend static files (Vite build output)
     if FRONTEND_DIR.exists():
