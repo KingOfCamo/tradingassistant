@@ -18,8 +18,28 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     claude_model: str = "claude-sonnet-4-20250514"
 
-    # Market Data
+    # Market Data — primary feeds
+    # Twelve Data: ASX quotes/OHLCV/indicators/earnings (free tier 800 credits/day)
+    twelve_data_api_key: str = ""
+    twelve_data_daily_credit_limit: int = 800
+    twelve_data_credits_warning_pct: int = 80
+    # Plan tier controls whether Twelve Data is used for ASX symbols.
+    # Free tier = US-only (ASX falls back to yfinance).
+    # "pro" / "venture" / "enterprise" = ASX included, Twelve Data becomes
+    # the primary ASX source. Flip this env var when you upgrade.
+    twelve_data_plan_tier: str = "free"
+
+    # FRED: macro series (VIX history, yield curve, Fed/RBA rates, CPI) — always free
+    fred_api_key: str = ""
+    fred_cache_ttl_seconds: int = 86400  # 24h — macro data changes daily at most
+
+    # Finnhub: US quotes/news/VIX/insider (optional — free tier)
     finnhub_api_key: str = ""
+
+    # Cache TTLs (Redis)
+    quote_cache_ttl_seconds: int = 900              # 15m — matches scan interval
+    ohlcv_daily_cache_ttl_seconds: int = 86400      # 24h for completed daily bars
+    ohlcv_intraday_cache_ttl_seconds: int = 900     # 15m
 
     # Database — Railway sets DATABASE_URL and REDIS_URL automatically
     database_url: str = "postgresql+asyncpg://trader:password@localhost:5432/tradingassistant"
@@ -29,8 +49,7 @@ class Settings(BaseSettings):
     port: int = 8000  # Railway sets PORT env var
     railway_public_domain: str = ""  # e.g. your-app.up.railway.app
 
-    # Notifications
-    sendgrid_api_key: Optional[str] = None
+    # Notifications (optional)
     alert_email: Optional[str] = None
 
     # User Profile
@@ -83,7 +102,16 @@ class Settings(BaseSettings):
     secret_key: str = "replace_this_with_a_long_random_string_at_least_32_chars"
     log_level: str = "INFO"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    def warn_if_feeds_missing(self) -> list[str]:
+        """Return a list of missing required feed keys. Logged at startup by app.py."""
+        missing = []
+        if not self.twelve_data_api_key:
+            missing.append("TWELVE_DATA_API_KEY")
+        if not self.fred_api_key:
+            missing.append("FRED_API_KEY")
+        return missing
 
     def get_async_database_url(self) -> str:
         return _fix_database_url(self.database_url)
