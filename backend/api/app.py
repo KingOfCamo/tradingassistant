@@ -27,6 +27,11 @@ from backend.api.routes.data import router as data_router_api
 
 logger = logging.getLogger(__name__)
 
+# Silence yfinance's chatty 429 warnings — it's now a fallback path and
+# rate-blocks are expected. The strategy layer handles empty results.
+logging.getLogger("yfinance").setLevel(logging.ERROR)
+logging.getLogger("peewee").setLevel(logging.ERROR)
+
 # Frontend build directory (built by Vite into frontend/dist/)
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 

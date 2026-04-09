@@ -4,6 +4,7 @@ Stores daily usage in Redis. Each source has its own key. TTL is 25h so the
 counter expires an hour after UTC midnight rollover.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -18,18 +19,59 @@ def _today_key(source: str) -> str:
     return f"credits:{source}:{today}"
 
 
+def _minute_key(source: str) -> str:
+    minute = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
+    return f"credits:{source}:minute:{minute}"
+
+
 class CreditTracker:
-    def __init__(self, daily_limit: int = 800, warning_pct: int = 80):
+    def __init__(
+        self,
+        daily_limit: int = 800,
+        warning_pct: int = 80,
+        per_minute_limit: int = 8,
+    ):
         self.daily_limit = daily_limit
         self.warning_pct = warning_pct
+        # Twelve Data free tier: 8 credits/minute. Pro: 500/min.
+        # Set to a large number on paid plans via env to disable throttling.
+        self.per_minute_limit = per_minute_limit
 
-    async def consume(self, credits: int, source: str = "twelve_data") -> int:
-        """Add credits to the daily counter. Returns the new total used."""
+    async def throttle(self, cost: int, source: str = "twelve_data") -> None:
+        """Sleep if the upcoming `cost` would exceed the per-minute limit.
+
+        This is the key rate-limit guard that prevents Twelve Data free
+        tier from firing 'run out of API credits for the current minute'
+        errors during bulk scans.
+        """
         try:
             redis = await get_redis()
-            key = _today_key(source)
-            new_total = await redis.incrby(key, credits)
-            await redis.expire(key, 90_000)  # 25h
+            key = _minute_key(source)
+            used = int(await redis.get(key) or 0)
+            if used + cost > self.per_minute_limit:
+                # Wait until the next minute rolls over
+                now = datetime.now(timezone.utc)
+                seconds_left = 60 - now.second + 1
+                logger.info(
+                    "[throttle] %s would exceed %d/min (used=%d, cost=%d); sleeping %ds",
+                    source, self.per_minute_limit, used, cost, seconds_left,
+                )
+                await asyncio.sleep(seconds_left)
+        except Exception as e:
+            logger.debug("credit_tracker.throttle soft-fail: %s", e)
+
+    async def consume(self, credits: int, source: str = "twelve_data") -> int:
+        """Add credits to daily + per-minute counters. Returns new daily total."""
+        try:
+            redis = await get_redis()
+            # Daily counter
+            day_key = _today_key(source)
+            new_total = await redis.incrby(day_key, credits)
+            await redis.expire(day_key, 90_000)  # 25h
+            # Per-minute counter
+            min_key = _minute_key(source)
+            await redis.incrby(min_key, credits)
+            await redis.expire(min_key, 65)
             pct = (new_total / self.daily_limit * 100) if self.daily_limit else 0
             if pct >= self.warning_pct:
                 logger.warning(

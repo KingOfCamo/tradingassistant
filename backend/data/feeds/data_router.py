@@ -395,6 +395,7 @@ def init_data_router(
     tracker = CreditTracker(
         daily_limit=settings.twelve_data_daily_credit_limit,
         warning_pct=settings.twelve_data_credits_warning_pct,
+        per_minute_limit=settings.twelve_data_per_minute_limit,
     )
 
     try:

@@ -117,6 +117,7 @@ class TwelveDataFeed:
                          timestamp=_parse_ts(cached.get("timestamp", "")))
 
         exchange = _td_exchange(market)
+        await self.credit_tracker.throttle(1)
         logger.info("Fetching quote %s/%s from Twelve Data", market, symbol)
         try:
             data = await self._quote_call(symbol, exchange)
@@ -196,6 +197,7 @@ class TwelveDataFeed:
         for i in range(0, len(to_fetch), CHUNK):
             chunk = to_fetch[i:i + CHUNK]
             sym_list = ",".join(chunk)
+            await self.credit_tracker.throttle(len(chunk))
             logger.info(
                 "Fetching %d quotes from Twelve Data (chunk %d/%d)",
                 len(chunk), i // CHUNK + 1, (len(to_fetch) + CHUNK - 1) // CHUNK,
@@ -278,6 +280,9 @@ class TwelveDataFeed:
 
         exchange = _td_exchange(market)
         tz = _td_timezone(market)
+        # OHLCV with outputsize N costs ~ceil(N/50) credits in our accounting.
+        cost = max(1, outputsize // 50)
+        await self.credit_tracker.throttle(cost)
         logger.info("Fetching OHLCV %s/%s %s (%d bars)", market, symbol, interval, outputsize)
 
         @retry(
@@ -360,6 +365,7 @@ class TwelveDataFeed:
 
         exchange = _td_exchange(market)
         tz = _td_timezone(market)
+        await self.credit_tracker.throttle(8)
         logger.info("Fetching indicators %s/%s from Twelve Data", market, symbol)
 
         def _blocking():

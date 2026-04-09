@@ -109,6 +109,17 @@ class StrategyRegistry:
 
     async def run_all(self, universe: list, market: str) -> list[TradeIdea]:
         """Run all regime-appropriate strategies and return combined ideas."""
+        # Cap universe on free-tier data plans to avoid burning through
+        # per-minute credit limits. Raise scan_max_symbols via env when
+        # you upgrade Twelve Data.
+        from backend.config import settings
+        if settings.scan_max_symbols and len(universe) > settings.scan_max_symbols:
+            logger.info(
+                "Capping scan universe to %d symbols (was %d) for %s",
+                settings.scan_max_symbols, len(universe), market,
+            )
+            universe = universe[:settings.scan_max_symbols]
+
         regime = await get_current_regime(market)
         active = self.get_active_strategies(regime)
         all_ideas = []

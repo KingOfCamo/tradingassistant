@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     twelve_data_api_key: str = ""
     twelve_data_daily_credit_limit: int = 800
     twelve_data_credits_warning_pct: int = 80
+    # Free tier: 8 credits/minute. Pro: 500. Raise via env when upgraded.
+    twelve_data_per_minute_limit: int = 8
+    # Max symbols per scan — helps on free tiers where per-minute limits
+    # make scanning 200 symbols impractical. Raise when you upgrade.
+    scan_max_symbols: int = 5
     # Plan tier controls whether Twelve Data is used for ASX symbols.
     # Free tier = US-only (ASX falls back to yfinance).
     # "pro" / "venture" / "enterprise" = ASX included, Twelve Data becomes
