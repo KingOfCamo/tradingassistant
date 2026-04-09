@@ -59,19 +59,30 @@ async def data_health(user=Depends(get_current_user)) -> dict[str, Any]:
         except Exception as e:
             td_block = {"status": "error", "error": str(e)}
 
-    # Finnhub status
+    # Finnhub status — probe with a cheap US quote, not VIX (free tier has no VIX)
     fh_block: dict[str, Any] = {"status": "disabled"}
     if dr.finnhub is not None and dr.finnhub.enabled:
         try:
+            probe_ok = False
+            try:
+                q = await dr.finnhub.get_quote_us("AAPL")
+                probe_ok = q is not None and q.price > 0
+            except Exception as e:
+                logger.debug("Finnhub AAPL probe failed: %s", e)
+            # VIX via DataRouter (falls back to FRED if Finnhub doesn't have it)
             vix = None
             try:
-                vix = await dr.finnhub.get_vix()
+                vix = await dr.get_vix()
             except Exception:
                 pass
             fh_block = {
-                "status": "ok" if vix is not None else "degraded",
+                "status": "ok" if probe_ok else "degraded",
+                "probe_symbol": "AAPL",
+                "probe_ok": probe_ok,
                 "vix_current": vix,
+                "vix_source": "finnhub" if vix and probe_ok else ("fred" if vix else None),
                 "last_successful_call": _iso(dr.finnhub.last_successful_call),
+                "note": "Finnhub free tier excludes ^VIX; VIX served from FRED.",
             }
         except Exception as e:
             fh_block = {"status": "error", "error": str(e)}
