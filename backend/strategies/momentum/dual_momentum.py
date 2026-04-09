@@ -170,9 +170,10 @@ class DualMomentum(BaseStrategy):
             ],
             technical_summary=(
                 f"Strong uptrend: price above 50 & 200 SMA. "
-                f"RSI at {rsi:.0f}, ADX at {adx:.0f if adx else 0}. "
-                f"Pullback to 10 EMA ({entry:.2f}) offers entry."
-            ),
+                f"RSI at {rsi:.0f}, ADX at {adx:.0f}" if adx else
+                f"Strong uptrend: price above 50 & 200 SMA. "
+                f"RSI at {rsi:.0f}, ADX n/a"
+            ) + f". Pullback to 10 EMA ({entry:.2f}) offers entry.",
             risk_factors=[
                 "Momentum reversal risk if market regime shifts",
                 f"Stop at {stop:.2f} (2x ATR below entry)",
