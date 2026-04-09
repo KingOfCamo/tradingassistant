@@ -211,13 +211,19 @@ async def weekly_style_report_job():
 
 
 async def _persist_scan_snapshot(label: str, ideas: list) -> None:
-    """Persist the latest scan result to Redis for the /api/ideas endpoint.
+    """Persist the latest scan result.
 
-    This is a minimal implementation — a full system would write to the
-    trade_ideas table in Postgres. For now we dump the top-20 to Redis so
-    the Ideas feed has something real to show.
+    Primary: Postgres trade_ideas table (via trade_ideas_repo). The repo
+    archives prior active rows for this market then inserts the fresh batch.
+
+    Secondary: Redis snapshot under scan:latest:{label} for fast reads
+    and for backfill if the DB write fails.
+
+    `label` may be a raw market name (e.g. "ASX") or include a suffix
+    (e.g. "ASX_EOD"). The market portion is parsed out for the DB write.
     """
     try:
+        # Always write the Redis snapshot (cheap, tolerant)
         from backend.data.cache import cache_set
         from dataclasses import asdict, is_dataclass
 
@@ -228,11 +234,21 @@ async def _persist_scan_snapshot(label: str, ideas: list) -> None:
                 for k, v in list(d.items()):
                     if isinstance(v, datetime):
                         d[k] = v.isoformat()
+                    elif hasattr(v, "value"):  # Enum
+                        d[k] = v.value
                 payload.append(d)
         await cache_set(f"scan:latest:{label}", payload, 43200)  # 12h
-        logger.debug("Persisted %d ideas under scan:latest:%s", len(payload), label)
     except Exception as e:
-        logger.warning("Failed to persist scan snapshot for %s: %s", label, e)
+        logger.warning("Failed to write Redis snapshot for %s: %s", label, e)
+
+    # DB write
+    try:
+        from backend.db.repositories.trade_ideas_repo import save_scan_ideas
+        market = label.split("_")[0]  # "ASX_EOD" → "ASX"
+        count = await save_scan_ideas(ideas, market)
+        logger.info("DB persist %s: %d ideas written", market, count)
+    except Exception as e:
+        logger.warning("Failed to persist scan to DB for %s: %s", label, e)
 
 
 # ─── Registration ─────────────────────────────────────────────────────────

@@ -255,6 +255,24 @@ class DataRouter:
             "rba_rate": rba_rate,
         }
 
+    # ─── fundamentals ────────────────────────────────────────────────────
+
+    async def get_fundamentals(self, symbol: str, market: str) -> dict:
+        """Normalised fundamental metrics.
+
+        US: Finnhub basic_financials (ROE/margin/D-E/PE/PEG/etc)
+        ASX: empty dict until an ASX fundamentals source is wired (paid TD,
+             EODHD, or scraped ASX data). Callers must handle empty dicts
+             gracefully — fundamental_screen returns None on empty input.
+        """
+        if market in ("NYSE", "NASDAQ", "US") and self.finnhub and self.finnhub.enabled:
+            try:
+                return await self.finnhub.get_company_metrics_us(symbol)
+            except Exception as e:
+                logger.debug("Finnhub fundamentals failed for %s: %s", symbol, e)
+                return {}
+        return {}
+
     # ─── earnings ────────────────────────────────────────────────────────
 
     async def get_earnings_calendar(self, market: str) -> list[dict]:

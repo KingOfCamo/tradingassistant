@@ -355,6 +355,83 @@ class FinnhubFeed:
         await cache_set(cache_key, result, 3600)
         return result
 
+    # ─── fundamentals ─────────────────────────────────────────────────────
+
+    async def get_company_metrics_us(self, symbol: str) -> dict:
+        """Fetch fundamentals via Finnhub's company_basic_financials endpoint.
+
+        Returns a normalised dict:
+          {roe, profit_margin, debt_to_equity, current_ratio, pe_ratio,
+           peg_ratio, dividend_yield, market_cap, fifty_two_week_low,
+           fifty_two_week_high, two_hundred_day_avg, current_price}
+
+        Finnhub free tier supports this for US stocks. Values are the
+        most-recent annual ('metric' section) or raw metric values.
+        Missing values are returned as None (not 0) so callers can
+        distinguish "no data" from "zero".
+        """
+        self._require()
+        cache_key = f"fundamentals:{symbol}"
+        cached = await cache_get(cache_key)
+        if cached:
+            return cached
+
+        def _blocking():
+            return self.client.company_basic_financials(symbol, "all")
+
+        try:
+            raw = await asyncio.to_thread(_blocking)
+        except Exception as e:
+            raise DataFeedError(f"Finnhub basic_financials {symbol} failed: {e}")
+
+        self._mark_ok()
+
+        metric = (raw or {}).get("metric", {}) if isinstance(raw, dict) else {}
+        if not metric:
+            return {}
+
+        def _num(*keys):
+            for k in keys:
+                v = metric.get(k)
+                if v is not None:
+                    try:
+                        return float(v)
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
+        # Finnhub reports ROE/margins as PERCENTS (e.g. 35.6 = 35.6%), while
+        # yfinance used fractions (0.356). Convert to fractions to preserve
+        # the downstream threshold logic in fundamental_screen.
+        def _pct_to_frac(v):
+            if v is None:
+                return None
+            return v / 100.0
+
+        result = {
+            "roe": _pct_to_frac(_num("roeTTM", "roeRfy", "roeAnnual")),
+            "profit_margin": _pct_to_frac(
+                _num("netProfitMarginTTM", "netProfitMarginAnnual")
+            ),
+            "debt_to_equity": _num(
+                "totalDebt/totalEquityQuarterly",
+                "totalDebt/totalEquityAnnual",
+                "longTermDebt/equityQuarterly",
+            ),
+            "current_ratio": _num("currentRatioQuarterly", "currentRatioAnnual"),
+            "pe_ratio": _num("peTTM", "peNormalizedAnnual", "peBasicExclExtraTTM"),
+            "peg_ratio": _num("pegTTM"),
+            "dividend_yield": _pct_to_frac(_num("dividendYieldIndicatedAnnual")),
+            "market_cap": _num("marketCapitalization"),
+            "fifty_two_week_low": _num("52WeekLow"),
+            "fifty_two_week_high": _num("52WeekHigh"),
+            "revenue_growth_3y": _pct_to_frac(
+                _num("revenueGrowth3Y", "revenueGrowthTTMYoy")
+            ),
+        }
+        await cache_set(cache_key, result, 86400)  # 24h — fundamentals change quarterly
+        return result
+
     # ─── insider transactions ────────────────────────────────────────────
 
     async def get_insider_transactions(self, symbol: str) -> list[dict]:
